@@ -1,0 +1,158 @@
+package com.corevibs.focuslock
+
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Color
+import android.os.Bundle
+import android.view.View
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.ProgressBar
+import android.widget.TextView
+
+class BlockedActivity : Activity() {
+
+    private val appNames = mapOf(
+        "com.instagram.android" to "Instagram",
+        "com.google.android.youtube" to "YouTube"
+    )
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Fullscreen, above lock screen
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+
+        // Dark background
+        window.decorView.setBackgroundColor(Color.parseColor("#0A0A0F"))
+        window.statusBarColor = Color.parseColor("#0A0A0F")
+        window.navigationBarColor = Color.parseColor("#0A0A0F")
+
+        val pkg = intent.getStringExtra("blocked_package") ?: ""
+        val usedMin = intent.getIntExtra("used_minutes", 0)
+        val limitMin = intent.getIntExtra("limit_minutes", 60)
+        val appName = appNames[pkg] ?: "This app"
+
+        val view = buildUI(appName, usedMin, limitMin)
+        setContentView(view)
+    }
+
+    private fun buildUI(appName: String, usedMin: Int, limitMin: Int): View {
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(80, 80, 80, 80)
+            setBackgroundColor(Color.parseColor("#0A0A0F"))
+        }
+
+        // Lock emoji
+        val lockEmoji = TextView(this).apply {
+            text = "🔒"
+            textSize = 72f
+            gravity = android.view.Gravity.CENTER
+        }
+
+        // Title
+        val title = TextView(this).apply {
+            text = "$appName Locked"
+            textSize = 24f
+            setTextColor(Color.parseColor("#FF3CAC"))
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = android.view.Gravity.CENTER
+        }
+
+        // Subtitle
+        val subtitle = TextView(this).apply {
+            text = "You've used $usedMin/$limitMin minutes today.\nYour time is up."
+            textSize = 14f
+            setTextColor(Color.parseColor("#FFFFFF60"))
+            gravity = android.view.Gravity.CENTER
+            lineSpacingMultiplier = 1.5f
+        }
+
+        // Progress bar
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = limitMin
+            progress = usedMin
+            indeterminate = false
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 16
+            )
+            lp.setMargins(0, 40, 0, 40)
+            layoutParams = lp
+            progressDrawable.setColorFilter(
+                Color.parseColor("#FF3CAC"),
+                android.graphics.PorterDuff.Mode.SRC_IN
+            )
+            background.setColorFilter(Color.parseColor("#FFFFFF15"), android.graphics.PorterDuff.Mode.SRC_IN)
+        }
+
+        // Quote
+        val quote = TextView(this).apply {
+            text = "\"The successful warrior is the average man,\nwith laser-like focus.\"\n— Bruce Lee"
+            textSize = 13f
+            setTextColor(Color.parseColor("#FFFFFF30"))
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 20, 0, 60)
+            lineSpacingMultiplier = 1.6f
+            setTypeface(typeface, android.graphics.Typeface.ITALIC)
+        }
+
+        // Go home button
+        val homeBtn = Button(this).apply {
+            text = "← BACK TO FOCUSLOCK"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#FF3CAC"))
+            setPadding(60, 30, 60, 30)
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            layoutParams = lp
+            setOnClickListener { goHome() }
+        }
+
+        layout.addView(lockEmoji)
+        layout.addView(spacer(24))
+        layout.addView(title)
+        layout.addView(spacer(12))
+        layout.addView(subtitle)
+        layout.addView(progress)
+        layout.addView(quote)
+        layout.addView(homeBtn)
+
+        return layout
+    }
+
+    private fun spacer(dp: Int): View {
+        return View(this).apply {
+            val px = (dp * resources.displayMetrics.density).toInt()
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, px
+            )
+        }
+    }
+
+    private fun goHome() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        startActivity(intent)
+        finish()
+    }
+
+    override fun onBackPressed() {
+        // Disable back button – must go home via button
+        goHome()
+    }
+}

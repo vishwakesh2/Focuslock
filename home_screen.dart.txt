@@ -1,0 +1,209 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../providers/focus_provider.dart';
+import '../widgets/strike_bar.dart';
+import '../widgets/app_grid.dart';
+import '../widgets/clock_widget.dart';
+import '../widgets/lockdown_overlay.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final p = context.read<FocusProvider>();
+      p.loadApps();
+      p.refreshUsage();
+    });
+    _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      context.read<FocusProvider>().refreshUsage();
+      context.read<FocusProvider>().refreshLockdown();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      context.read<FocusProvider>().refreshUsage();
+      context.read<FocusProvider>().refreshLockdown();
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false, // Disable back button – this IS the launcher
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light.copyWith(
+          statusBarColor: Colors.transparent,
+          systemNavigationBarColor: const Color(0xFF0A0A0F),
+        ),
+        child: Scaffold(
+          backgroundColor: const Color(0xFF0A0A0F),
+          body: Consumer<FocusProvider>(
+            builder: (context, provider, _) {
+              if (provider.fullLockdown) {
+                return LockdownOverlay(provider: provider);
+              }
+              return SafeArea(
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    const ClockWidget(),
+                    const SizedBox(height: 8),
+                    StrikeBar(strikes: provider.strikes),
+                    const SizedBox(height: 8),
+                    _buildLimitBars(provider),
+                    const Divider(color: Color(0xFF1A1A2E), height: 16),
+                    Expanded(
+                      child: provider.loadingApps
+                          ? const Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFFFF3CAC),
+                              ),
+                            )
+                          : AppGrid(
+                              apps: provider.apps,
+                              provider: provider,
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLimitBars(FocusProvider provider) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          _UsageBar(
+            label: 'Instagram',
+            packageName: kInstagram,
+            limitMinutes: kLimitedApps[kInstagram]!,
+            provider: provider,
+            color: const Color(0xFFE1306C),
+            icon: Icons.photo_camera,
+          ),
+          const SizedBox(height: 6),
+          _UsageBar(
+            label: 'YouTube',
+            packageName: kYoutube,
+            limitMinutes: kLimitedApps[kYoutube]!,
+            provider: provider,
+            color: const Color(0xFFFF0000),
+            icon: Icons.play_circle_filled,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageBar extends StatelessWidget {
+  final String label;
+  final String packageName;
+  final int limitMinutes;
+  final FocusProvider provider;
+  final Color color;
+  final IconData icon;
+
+  const _UsageBar({
+    required this.label,
+    required this.packageName,
+    required this.limitMinutes,
+    required this.provider,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final used = provider.usageMinutes[packageName] ?? 0;
+    final ratio = (used / limitMinutes).clamp(0.0, 1.0);
+    final remaining = (limitMinutes - used).clamp(0, limitMinutes);
+    final isOver = remaining == 0;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF12121F),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isOver ? color.withOpacity(0.8) : Colors.white10,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      isOver
+                          ? '🔒 BLOCKED'
+                          : '${remaining}m left',
+                      style: TextStyle(
+                        color: isOver ? color : Colors.white38,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: ratio,
+                    backgroundColor: Colors.white10,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      isOver ? color : color.withOpacity(0.7),
+                    ),
+                    minHeight: 5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

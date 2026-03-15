@@ -1,0 +1,281 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/focus_provider.dart';
+import 'home_screen.dart';
+
+class SetupScreen extends StatefulWidget {
+  const SetupScreen({super.key});
+  @override
+  State<SetupScreen> createState() => _SetupScreenState();
+}
+
+class _SetupScreenState extends State<SetupScreen> {
+  int _step = 0;
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<FocusProvider>().checkPermissions();
+    });
+  }
+
+  Future<void> _refreshAndAdvance() async {
+    setState(() => _checking = true);
+    final p = context.read<FocusProvider>();
+    await p.checkPermissions();
+    setState(() => _checking = false);
+
+    if (p.hasUsagePermission && p.hasAccessibilityPermission) {
+      await p.completeSetup();
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A0A0F),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 24),
+              _buildHeader(),
+              const SizedBox(height: 40),
+              _buildSteps(),
+              const Spacer(),
+              _buildContinueButton(),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ShaderMask(
+          shaderCallback: (bounds) => const LinearGradient(
+            colors: [Color(0xFFFF3CAC), Color(0xFF784BA0)],
+          ).createShader(bounds),
+          child: const Text(
+            'FOCUSLOCK',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 4,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'by CoreviBS',
+          style: TextStyle(color: Colors.white38, fontSize: 13),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Grant 2 permissions to activate your discipline system.',
+          style: TextStyle(color: Colors.white60, fontSize: 15, height: 1.5),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSteps() {
+    final provider = context.watch<FocusProvider>();
+    return Column(
+      children: [
+        _PermStep(
+          number: '01',
+          title: 'Usage Access',
+          subtitle: 'Lets FocusLock track Instagram & YouTube time.',
+          granted: provider.hasUsagePermission,
+          onTap: () async {
+            await provider.requestUsagePermission();
+            await Future.delayed(const Duration(seconds: 1));
+            await provider.checkPermissions();
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
+        _PermStep(
+          number: '02',
+          title: 'Accessibility Service',
+          subtitle:
+              'Lets FocusLock block apps the instant your time is up. No bypass.',
+          granted: provider.hasAccessibilityPermission,
+          onTap: () async {
+            await provider.requestAccessibility();
+            await Future.delayed(const Duration(seconds: 2));
+            await provider.checkPermissions();
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
+        _PermStep(
+          number: '03',
+          title: 'Set as Default Launcher',
+          subtitle:
+              'Home button always returns here. The lock is real.',
+          granted: false, // User does this manually via system dialog
+          onTap: null,
+          isManual: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContinueButton() {
+    final p = context.watch<FocusProvider>();
+    final ready = p.hasUsagePermission && p.hasAccessibilityPermission;
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: ElevatedButton(
+        onPressed: _checking ? null : _refreshAndAdvance,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: ready ? const Color(0xFFFF3CAC) : Colors.white12,
+          foregroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        child: _checking
+            ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white))
+            : Text(
+                ready ? 'ACTIVATE FOCUSLOCK →' : 'CHECK PERMISSIONS',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w800, letterSpacing: 1),
+              ),
+      ),
+    );
+  }
+}
+
+class _PermStep extends StatelessWidget {
+  final String number;
+  final String title;
+  final String subtitle;
+  final bool granted;
+  final VoidCallback? onTap;
+  final bool isManual;
+
+  const _PermStep({
+    required this.number,
+    required this.title,
+    required this.subtitle,
+    required this.granted,
+    required this.onTap,
+    this.isManual = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: granted
+              ? const Color(0xFF0D2A1A)
+              : const Color(0xFF12121F),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: granted
+                ? const Color(0xFF00FF87).withOpacity(0.5)
+                : Colors.white12,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: granted
+                    ? const Color(0xFF00FF87).withOpacity(0.2)
+                    : Colors.white10,
+              ),
+              child: Center(
+                child: granted
+                    ? const Icon(Icons.check, color: Color(0xFF00FF87), size: 20)
+                    : Text(
+                        number,
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: granted ? const Color(0xFF00FF87) : Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      if (isManual) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'MANUAL',
+                            style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ]
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style:
+                        const TextStyle(color: Colors.white38, fontSize: 12, height: 1.4),
+                  ),
+                ],
+              ),
+            ),
+            if (!granted && onTap != null)
+              const Icon(Icons.arrow_forward_ios,
+                  color: Color(0xFFFF3CAC), size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}

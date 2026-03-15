@@ -1,0 +1,178 @@
+import 'dart:convert';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const _channel = MethodChannel('com.corevibs.focuslock/system');
+
+class AppInfo {
+  final String name;
+  final String packageName;
+  final Uint8List? icon; // raw PNG bytes from native
+  AppInfo({required this.name, required this.packageName, this.icon});
+}
+
+// Packages subject to time limits
+const Map<String, int> kLimitedApps = {
+  'com.instagram.android': 60,   // minutes
+  'com.google.android.youtube': 180,
+};
+
+const String kInstagram = 'com.instagram.android';
+const String kYoutube = 'com.google.android.youtube';
+
+class FocusProvider extends ChangeNotifier {
+  final SharedPreferences _prefs;
+
+  List<AppInfo> apps = [];
+  Map<String, int> usageMinutes = {}; // packageName → minutes used today
+  int strikes = 0;
+  bool fullLockdown = false;
+  DateTime? lockdownUntil;
+  bool loadingApps = true;
+
+  bool hasUsagePermission = false;
+  bool hasAccessibilityPermission = false;
+  bool hasOverlayPermission = false;
+
+  FocusProvider(this._prefs) {
+    _loadStrikes();
+    _loadLockdown();
+  }
+
+  String get _todayKey => DateTime.now().toIso8601String().substring(0, 10);
+
+  void _loadStrikes() {
+    strikes = _prefs.getInt('strikes_$_todayKey') ?? 0;
+    if (strikes >= 3) _checkLockdown();
+  }
+
+  void _loadLockdown() {
+    final lockdownStr = _prefs.getString('lockdown_until');
+    if (lockdownStr != null) {
+      lockdownUntil = DateTime.tryParse(lockdownStr);
+      if (lockdownUntil != null && DateTime.now().isBefore(lockdownUntil!)) {
+        fullLockdown = true;
+      } else {
+        fullLockdown = false;
+        lockdownUntil = null;
+        _prefs.remove('lockdown_until');
+      }
+    }
+  }
+
+  void _checkLockdown() {
+    if (strikes >= 3 && !fullLockdown) {
+      fullLockdown = true;
+      lockdownUntil = DateTime.now().add(const Duration(hours: 1));
+      _prefs.setString('lockdown_until', lockdownUntil!.toIso8601String());
+    }
+  }
+
+  Future<void> checkPermissions() async {
+    try {
+      final result = await _channel.invokeMethod<Map>('checkPermissions');
+      hasUsagePermission = result?['usage'] ?? false;
+      hasAccessibilityPermission = result?['accessibility'] ?? false;
+      hasOverlayPermission = result?['overlay'] ?? false;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> requestUsagePermission() async {
+    await _channel.invokeMethod('requestUsagePermission');
+  }
+
+  Future<void> requestOverlayPermission() async {
+    await _channel.invokeMethod('requestOverlayPermission');
+  }
+
+  Future<void> requestAccessibility() async {
+    await _channel.invokeMethod('requestAccessibility');
+  }
+
+  Future<void> loadApps() async {
+    loadingApps = true;
+    notifyListeners();
+    try {
+      final List result = await _channel.invokeMethod('getInstalledApps');
+      apps = result.map((e) {
+        final iconB64 = e['icon'] as String?;
+        Uint8List? iconBytes;
+        if (iconB64 != null && iconB64.isNotEmpty) {
+          iconBytes = base64Decode(iconB64);
+        }
+        return AppInfo(
+          name: e['name'] as String,
+          packageName: e['packageName'] as String,
+          icon: iconBytes,
+        );
+      }).toList();
+      apps.sort((a, b) => a.name.compareTo(b.name));
+    } catch (e) {
+      debugPrint('loadApps error: $e');
+    }
+    loadingApps = false;
+    notifyListeners();
+  }
+
+  Future<void> refreshUsage() async {
+    try {
+      final Map result = await _channel.invokeMethod('getUsageStats');
+      usageMinutes = result.map((k, v) => MapEntry(k as String, v as int));
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Returns remaining minutes for a limited app. null = unlimited.
+  int? remainingMinutes(String packageName) {
+    if (!kLimitedApps.containsKey(packageName)) return null;
+    final used = usageMinutes[packageName] ?? 0;
+    final limit = kLimitedApps[packageName]!;
+    return (limit - used).clamp(0, limit);
+  }
+
+  bool isBlocked(String packageName) {
+    if (fullLockdown) {
+      // During lockdown only allow calls/emergency
+      return packageName != 'com.android.dialer' &&
+          packageName != 'com.samsung.android.dialer';
+    }
+    if (!kLimitedApps.containsKey(packageName)) return false;
+    return remainingMinutes(packageName) == 0;
+  }
+
+  void addStrike() {
+    strikes++;
+    _prefs.setInt('strikes_$_todayKey', strikes);
+    _checkLockdown();
+    notifyListeners();
+  }
+
+  Future<void> launchApp(String packageName) async {
+    if (isBlocked(packageName)) {
+      addStrike();
+      return;
+    }
+    try {
+      await _channel.invokeMethod('launchApp', {'packageName': packageName});
+    } catch (e) {
+      debugPrint('launchApp error: $e');
+    }
+  }
+
+  Duration? get lockdownRemaining {
+    if (lockdownUntil == null) return null;
+    final rem = lockdownUntil!.difference(DateTime.now());
+    return rem.isNegative ? null : rem;
+  }
+
+  void refreshLockdown() {
+    _loadLockdown();
+    notifyListeners();
+  }
+
+  Future<void> completeSetup() async {
+    await _prefs.setBool('setup_done', true);
+  }
+}

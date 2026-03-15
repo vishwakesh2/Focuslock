@@ -1,0 +1,165 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../providers/focus_provider.dart';
+
+class LockdownOverlay extends StatefulWidget {
+  final FocusProvider provider;
+  const LockdownOverlay({super.key, required this.provider});
+  @override
+  State<LockdownOverlay> createState() => _LockdownOverlayState();
+}
+
+class _LockdownOverlayState extends State<LockdownOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pulse;
+  Timer? _countdownTimer;
+  Duration _remaining = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+
+    _remaining = widget.provider.lockdownRemaining ?? Duration.zero;
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final r = widget.provider.lockdownRemaining;
+      if (r == null || r.isNegative) {
+        widget.provider.refreshLockdown();
+      } else {
+        setState(() => _remaining = r);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '${d.inHours > 0 ? '${d.inHours}:' : ''}$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Container(
+        color: const Color(0xFF0A0A0F),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  AnimatedBuilder(
+                    animation: _pulse,
+                    builder: (_, __) => Transform.scale(
+                      scale: 1.0 + _pulse.value * 0.1,
+                      child: Container(
+                        width: 120,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0xFFFF3CAC).withOpacity(0.1),
+                          border: Border.all(
+                            color: const Color(0xFFFF3CAC)
+                                .withOpacity(0.3 + _pulse.value * 0.4),
+                            width: 2,
+                          ),
+                        ),
+                        child: const Center(
+                          child: Text('🔒', style: TextStyle(fontSize: 52)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  const Text(
+                    'FULL LOCKDOWN',
+                    style: TextStyle(
+                      color: Color(0xFFFF3CAC),
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 3,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'You hit 3 strikes.\nNo apps until the timer ends.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 15,
+                      height: 1.6,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 32, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF12121F),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFFF3CAC), width: 1.5),
+                    ),
+                    child: Text(
+                      _fmt(_remaining),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 48,
+                        fontWeight: FontWeight.w200,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  const Text(
+                    '"Discipline is choosing between what\nyou want now and what you want most."',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white24,
+                      fontSize: 13,
+                      fontStyle: FontStyle.italic,
+                      height: 1.6,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  // Emergency calls only
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await const MethodChannel('com.corevibs.focuslock/system')
+                            .invokeMethod('launchApp',
+                                {'packageName': 'com.android.dialer'});
+                      },
+                      icon: const Icon(Icons.call, size: 18),
+                      label: const Text('Emergency Call Only'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white38,
+                        side: const BorderSide(color: Colors.white12),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,134 @@
+import 'package:flutter/material.dart';
+import '../providers/focus_provider.dart';
+
+class AppGrid extends StatelessWidget {
+  final List<AppInfo> apps;
+  final FocusProvider provider;
+  const AppGrid({super.key, required this.apps, required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        childAspectRatio: 0.78,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: apps.length,
+      itemBuilder: (context, i) {
+        final app = apps[i];
+        final blocked = provider.isBlocked(app.packageName);
+        return _AppTile(app: app, blocked: blocked, provider: provider);
+      },
+    );
+  }
+}
+
+class _AppTile extends StatelessWidget {
+  final AppInfo app;
+  final bool blocked;
+  final FocusProvider provider;
+  const _AppTile(
+      {required this.app, required this.blocked, required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        if (blocked) {
+          provider.addStrike();
+          _showBlockedSnack(context);
+          return;
+        }
+        await provider.launchApp(app.packageName);
+      },
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: Colors.white08,
+                ),
+                child: app.icon != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.memory(app.icon!, fit: BoxFit.cover),
+                      )
+                    : const Icon(Icons.apps, color: Colors.white38, size: 28),
+              ),
+              if (blocked)
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.black.withOpacity(0.65),
+                  ),
+                  child: const Icon(Icons.lock,
+                      color: Color(0xFFFF3CAC), size: 22),
+                ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            app.name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: blocked ? Colors.white38 : Colors.white70,
+              fontSize: 10.5,
+              height: 1.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBlockedSnack(BuildContext context) {
+    final strikes = provider.strikes;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF1A0A14),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 2),
+        content: Row(
+          children: [
+            const Text('🔒 ', style: TextStyle(fontSize: 18)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${app.name} is locked for today',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13),
+                  ),
+                  Text(
+                    'Strike $strikes/3 • ${3 - strikes} more = 1hr lockdown',
+                    style: const TextStyle(
+                        color: Color(0xFFFF3CAC), fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
